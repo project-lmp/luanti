@@ -145,3 +145,6 @@ client/mod_storage.sqlite
 
 # Logs de build (ne pas committer)
 /build-*.log
+
+# Menu de marque privé, copié au build (ne pas committer sur le repo public)
+/builtin/mainmenu/mmo_custom/

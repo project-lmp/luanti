@@ -53,9 +53,20 @@ if INIT == "game" then
 	dofile(scriptdir .. "game" .. DIR_DELIM .. "init.lua")
 	assert(not core.get_http_api)
 elseif INIT == "mainmenu" then
-	local mm_script = core.settings:get("main_menu_script")
 	local custom_loaded = false
-	if mm_script and mm_script ~= "" then
+	-- 1) Menu de marque INTÉGRÉ au build (portable : marche sur tout PC, aucun
+	--    chemin absolu). Chargé en priorité s'il est présent.
+	local mmo_menu = core.get_mainmenu_path() .. DIR_DELIM .. "mmo_custom" .. DIR_DELIM .. "init.lua"
+	local mmo_file = io.open(mmo_menu, "r")
+	if mmo_file then
+		mmo_file:close()
+		dofile(mmo_menu)
+		custom_loaded = true
+		core.log("info", "Loaded built-in custom main menu (Mon MMO)")
+	end
+	-- 2) Sinon, réglage main_menu_script (chemin externe, pratique en dev).
+	local mm_script = core.settings:get("main_menu_script")
+	if not custom_loaded and mm_script and mm_script ~= "" then
 		local testfile = io.open(mm_script, "r")
 		if testfile then
 			testfile:close()
@@ -67,6 +78,7 @@ elseif INIT == "mainmenu" then
 			core.log("info", "Falling back to default main menu script")
 		end
 	end
+	-- 3) Sinon, menu standard de Luanti.
 	if not custom_loaded then
 		dofile(core.get_mainmenu_path() .. DIR_DELIM .. "init.lua")
 	end
