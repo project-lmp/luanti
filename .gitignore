@@ -142,3 +142,6 @@ lib/irrlichtmt
 
 # Generated mod storage database
 client/mod_storage.sqlite
+
+# Logs de build (ne pas committer)
+/build-*.log
