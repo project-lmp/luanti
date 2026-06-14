@@ -3,6 +3,10 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include <map>
+#include <thread>
+#if !defined(_WIN32)
+#include <sys/select.h>
+#endif
 #include "irrlichttypes_bloated.h"
 #include "chat_interface.h"
 #include "debug.h"
@@ -17,6 +21,7 @@
 #include "log_internal.h"
 #include "util/serialize.h"
 #include "util/quicktune.h"
+#include "util/string.h"
 #include "httpfetch.h"
 #include "gameparams.h"
 #include "database/database.h"
@@ -1244,14 +1249,58 @@ static bool run_dedicated_server(const GameParams &game_params, const Settings &
 	} {
 #endif
 		try {
-			// Create server
+			std::string admin_nick = g_settings->get("name");
+			ChatInterface iface;
+			volatile auto &kill = *porting::signal_handler_killstatus();
+
+			// Create server with chat interface so stdin commands are processed
 			Server server(game_params.world_path, game_params.game_spec, false,
-				bind_addr, true);
+				bind_addr, true, &iface);
+
+			// Register admin nick so commands run with the right identity
+			if (is_valid_player_name(admin_nick))
+				iface.command_queue.push_back(new ChatEventNick(CET_NICK_ADD, admin_nick));
+
 			server.start();
 
+			// Read stdin in a background thread so that consoles piping input
+			// (e.g. Pterodactyl/Wings) can send commands to the server.
+			std::thread stdin_thread([&iface, &kill, admin_nick]() {
+				std::string line;
+#if !defined(_WIN32)
+				while (!kill) {
+					fd_set fds;
+					FD_ZERO(&fds);
+					FD_SET(STDIN_FILENO, &fds);
+					struct timeval tv = {0, 100000}; // 100 ms poll interval
+					if (select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv) <= 0)
+						continue;
+					if (!std::getline(std::cin, line))
+						break;
+					if (!line.empty())
+						iface.command_queue.push_back(
+							new ChatEventChat(admin_nick, utf8_to_wide(line)));
+				}
+#else
+				while (std::getline(std::cin, line)) {
+					if (kill)
+						break;
+					if (!line.empty())
+						iface.command_queue.push_back(
+							new ChatEventChat(admin_nick, utf8_to_wide(line)));
+				}
+#endif
+			});
+
 			// Run server
-			volatile auto &kill = *porting::signal_handler_killstatus();
 			dedicated_server_loop(server, kill);
+
+			// kill is now set; the stdin thread exits within one poll interval
+#if !defined(_WIN32)
+			stdin_thread.join();
+#else
+			stdin_thread.detach();
+#endif
 
 		} catch (const ModError &e) {
 			errorstream << "ModError: " << e.what() << std::endl;
